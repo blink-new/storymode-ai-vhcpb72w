@@ -329,18 +329,13 @@ User's latest message: ${input}${attachmentContext}`
     <div className="flex flex-col h-screen max-w-4xl mx-auto">
       {/* Header */}
       <header className="border-b bg-card px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold">StoryMode AI</h1>
-              <p className="text-sm text-muted-foreground">College Application Narrative Assistant</p>
-            </div>
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+            <Sparkles className="w-5 h-5 text-primary-foreground" />
           </div>
-          <div className="text-sm text-muted-foreground">
-            Welcome, {user.displayName || user.email}
+          <div>
+            <h1 className="text-xl font-semibold">StoryMode AI</h1>
+            <p className="text-sm text-muted-foreground">College Application Narrative Assistant</p>
           </div>
         </div>
         
