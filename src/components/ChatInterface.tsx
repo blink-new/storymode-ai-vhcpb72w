@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Paperclip, Sparkles, User, Bot } from 'lucide-react'
+import { Send, Paperclip, Sparkles, User, Bot, CheckCircle, Circle } from 'lucide-react'
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { Card } from './ui/card'
+import { Progress } from './ui/progress'
 import { blink } from '../blink/client'
 import { useToast } from '../hooks/use-toast'
 
@@ -18,6 +19,17 @@ interface Message {
   content: string
   timestamp: Date
   attachments?: File[]
+}
+
+interface UserProfile {
+  major?: string
+  colleges?: string[]
+  essayPrompts?: string[]
+  extracurriculars?: string[]
+  classes?: string[]
+  hobbies?: string[]
+  awards?: string[]
+  completeness: number
 }
 
 interface ChatInterfaceProps {
@@ -48,6 +60,7 @@ You can share this information in any order, and feel free to attach documents l
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [userProfile, setUserProfile] = useState<UserProfile>({ completeness: 0 })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
@@ -59,6 +72,70 @@ You can share this information in any order, and feel free to attach documents l
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Helper function to analyze user input and extract profile information
+  const analyzeUserInput = (text: string): Partial<UserProfile> => {
+    const lowerText = text.toLowerCase()
+    const profile: Partial<UserProfile> = {}
+
+    // Extract major information
+    if (lowerText.includes('major') || lowerText.includes('study') || lowerText.includes('field')) {
+      profile.major = text
+    }
+
+    // Extract college information
+    if (lowerText.includes('college') || lowerText.includes('university') || lowerText.includes('school')) {
+      profile.colleges = [text]
+    }
+
+    // Extract essay prompt information
+    if (lowerText.includes('essay') || lowerText.includes('prompt') || lowerText.includes('question')) {
+      profile.essayPrompts = [text]
+    }
+
+    // Extract extracurricular information
+    if (lowerText.includes('extracurricular') || lowerText.includes('activity') || lowerText.includes('club') || 
+        lowerText.includes('volunteer') || lowerText.includes('leadership')) {
+      profile.extracurriculars = [text]
+    }
+
+    // Extract class information
+    if (lowerText.includes('class') || lowerText.includes('course') || lowerText.includes('ap ') || 
+        lowerText.includes('honors') || lowerText.includes('ib ')) {
+      profile.classes = [text]
+    }
+
+    // Extract hobby information
+    if (lowerText.includes('hobby') || lowerText.includes('interest') || lowerText.includes('passion') ||
+        lowerText.includes('enjoy') || lowerText.includes('love')) {
+      profile.hobbies = [text]
+    }
+
+    // Extract award information
+    if (lowerText.includes('award') || lowerText.includes('recognition') || lowerText.includes('achievement') ||
+        lowerText.includes('honor') || lowerText.includes('prize')) {
+      profile.awards = [text]
+    }
+
+    return profile
+  }
+
+  // Helper function to calculate profile completeness
+  const calculateCompleteness = (profile: UserProfile): number => {
+    const fields = ['major', 'colleges', 'essayPrompts', 'extracurriculars', 'classes', 'hobbies', 'awards']
+    const completedFields = fields.filter(field => {
+      const value = profile[field as keyof UserProfile]
+      return value && (typeof value === 'string' ? value.length > 0 : Array.isArray(value) && value.length > 0)
+    })
+    return Math.round((completedFields.length / fields.length) * 100)
+  }
+
+  // Helper function to determine conversation stage
+  const getConversationStage = (profile: UserProfile): 'collection' | 'generation' | 'refinement' => {
+    if (profile.completeness < 60) return 'collection'
+    if (profile.completeness >= 60) return 'generation'
+    return 'refinement'
+  }
 
   const handleFileAttach = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
@@ -88,6 +165,29 @@ You can share this information in any order, and feel free to attach documents l
     }
 
     setMessages(prev => [...prev, userMessage])
+    
+    // Update user profile based on input
+    const extractedInfo = analyzeUserInput(input)
+    const updatedProfile = { ...userProfile }
+    
+    // Merge extracted information
+    Object.keys(extractedInfo).forEach(key => {
+      const typedKey = key as keyof UserProfile
+      if (extractedInfo[typedKey]) {
+        if (Array.isArray(extractedInfo[typedKey])) {
+          updatedProfile[typedKey] = [
+            ...(updatedProfile[typedKey] as string[] || []),
+            ...(extractedInfo[typedKey] as string[])
+          ]
+        } else {
+          updatedProfile[typedKey] = extractedInfo[typedKey] as any
+        }
+      }
+    })
+    
+    updatedProfile.completeness = calculateCompleteness(updatedProfile)
+    setUserProfile(updatedProfile)
+    
     setInput('')
     setAttachedFiles([])
     setIsLoading(true)
@@ -107,18 +207,83 @@ You can share this information in any order, and feel free to attach documents l
         }
       }
 
-      const fullPrompt = `${input}${attachmentContext}
+      const conversationStage = getConversationStage(updatedProfile)
+      
+      // Build comprehensive context about the user
+      const profileContext = `
+Current User Profile:
+- Major: ${updatedProfile.major || 'Not specified'}
+- Target Colleges: ${updatedProfile.colleges?.join(', ') || 'Not specified'}
+- Essay Prompts: ${updatedProfile.essayPrompts?.join('; ') || 'Not specified'}
+- Extracurriculars: ${updatedProfile.extracurriculars?.join(', ') || 'Not specified'}
+- Classes: ${updatedProfile.classes?.join(', ') || 'Not specified'}
+- Hobbies: ${updatedProfile.hobbies?.join(', ') || 'Not specified'}
+- Awards: ${updatedProfile.awards?.join(', ') || 'Not specified'}
+- Profile Completeness: ${updatedProfile.completeness}%
+- Conversation Stage: ${conversationStage}
+`
 
-Context: You are StoryMode AI, helping a college applicant create compelling narratives. The user is ${user.email}. 
+      let systemPrompt = ''
+      
+      if (conversationStage === 'collection') {
+        systemPrompt = `You are StoryMode AI, a college application narrative assistant. You're currently in the INFORMATION COLLECTION stage.
 
-Your role is to:
-1. Guide them to provide the required information (Major, Colleges, Essay prompts, Extracurriculars, Classes, Hobbies, Awards)
-2. Analyze their profile holistically 
-3. Generate brainstorming ideas that connect their experiences
-4. Provide strategic guidance for specific colleges and essay prompts
-5. Help them showcase their passion and academic interests
+${profileContext}
 
-Be encouraging, insightful, and specific in your responses. Help them see connections between their different experiences and how they tell a cohesive story.`
+Your current task is to:
+1. Acknowledge what the user has shared
+2. Identify what key information is still missing
+3. Ask thoughtful follow-up questions to gather more details
+4. Be encouraging and show how their experiences connect
+
+Focus on collecting comprehensive information about their major, target colleges, essay prompts, extracurriculars, classes, hobbies, and awards. Ask specific, engaging questions that help them reflect on their experiences.
+
+User's latest message: ${input}${attachmentContext}`
+
+      } else if (conversationStage === 'generation') {
+        systemPrompt = `You are StoryMode AI, a college application narrative assistant. You're now in the NARRATIVE GENERATION stage.
+
+${profileContext}
+
+The user has provided sufficient information (${updatedProfile.completeness}% complete). Now generate a comprehensive narrative roadmap that includes:
+
+## 🎯 NARRATIVE THEMES
+Identify 2-3 overarching themes that connect their experiences
+
+## 🔗 CONNECTION MATRIX  
+Show how their major, extracurriculars, classes, hobbies, and awards interconnect
+
+## 📚 COLLEGE-SPECIFIC STRATEGIES
+For each target college, provide:
+- Why they're a perfect fit
+- How to position their unique story
+- Key points to emphasize
+
+## ✍️ ESSAY ROADMAP
+For each essay prompt:
+- Suggested approach and angle
+- Specific experiences to highlight
+- How to weave in their themes
+
+## 💡 BRAINSTORMING IDEAS
+- Unique angles they haven't considered
+- Stories that showcase growth and impact
+- Ways to demonstrate intellectual curiosity
+
+## 🚀 ACTION PLAN
+Concrete next steps for their application strategy
+
+Be specific, insightful, and strategic. Help them see the compelling narrative that emerges from their experiences.
+
+User's latest message: ${input}${attachmentContext}`
+
+      } else {
+        systemPrompt = `You are StoryMode AI in REFINEMENT mode. Help the user polish and refine their narrative strategy based on their feedback.
+
+${profileContext}
+
+User's latest message: ${input}${attachmentContext}`
+      }
 
       let assistantResponse = ''
       const assistantMessage: Message = {
@@ -132,9 +297,9 @@ Be encouraging, insightful, and specific in your responses. Help them see connec
 
       await blink.ai.streamText(
         { 
-          prompt: fullPrompt,
+          prompt: systemPrompt,
           model: 'gpt-4o-mini',
-          maxTokens: 1000
+          maxTokens: 2000
         },
         (chunk) => {
           assistantResponse += chunk
@@ -178,6 +343,42 @@ Be encouraging, insightful, and specific in your responses. Help them see connec
             Welcome, {user.displayName || user.email}
           </div>
         </div>
+        
+        {/* Profile Progress */}
+        {userProfile.completeness > 0 && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Profile Completeness</span>
+              <span className="font-medium">{userProfile.completeness}%</span>
+            </div>
+            <Progress value={userProfile.completeness} className="h-2" />
+            <div className="grid grid-cols-7 gap-2 text-xs">
+              {[
+                { key: 'major', label: 'Major', value: userProfile.major },
+                { key: 'colleges', label: 'Colleges', value: userProfile.colleges },
+                { key: 'essayPrompts', label: 'Essays', value: userProfile.essayPrompts },
+                { key: 'extracurriculars', label: 'Activities', value: userProfile.extracurriculars },
+                { key: 'classes', label: 'Classes', value: userProfile.classes },
+                { key: 'hobbies', label: 'Hobbies', value: userProfile.hobbies },
+                { key: 'awards', label: 'Awards', value: userProfile.awards }
+              ].map(({ key, label, value }) => (
+                <div key={key} className="flex items-center space-x-1">
+                  {value && (typeof value === 'string' ? value.length > 0 : Array.isArray(value) && value.length > 0) ? (
+                    <CheckCircle className="w-3 h-3 text-green-500" />
+                  ) : (
+                    <Circle className="w-3 h-3 text-muted-foreground" />
+                  )}
+                  <span className="text-muted-foreground">{label}</span>
+                </div>
+              ))}
+            </div>
+            {userProfile.completeness >= 60 && (
+              <div className="text-xs text-green-600 font-medium">
+                ✨ Ready for narrative generation!
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       {/* Messages */}
